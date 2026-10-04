@@ -34,18 +34,34 @@ def read_json(path: Path, default=None):
         return default
 
 
+def token_value() -> str:
+    if os.environ.get("RETHINK_TOKEN"):
+        return os.environ["RETHINK_TOKEN"].strip()
+    candidates = []
+    if os.environ.get("RETHINK_CONFIG"):
+        candidates.append(Path(os.environ["RETHINK_CONFIG"]).parent / "token")
+    candidates.append(Path.home() / ".config" / "rethinkd" / "token")
+    candidates.append(Path("/etc/rethinkd/token"))
+    for candidate in candidates:
+        try:
+            value = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if value:
+            return value
+    return ""
+
+
 def endpoints() -> tuple[str, str]:
     """(base url, token) from the config/token files, with sane fallbacks."""
     cfg = read_json(config_path(), {}) or {}
     listen = (cfg.get("settings") or {}).get("listen", DEFAULT_LISTEN)
-    token_file = config_path().parent / "token"
-    if not token_file.exists() and Path("/etc/rethinkd/token").exists():
-        token_file = Path("/etc/rethinkd/token")
-    try:
-        token = token_file.read_text(encoding="utf-8").strip()
-    except OSError:
-        token = ""
-    return f"http://{listen}", token
+    if not listen or listen == DEFAULT_LISTEN:
+        # the system config may be unreadable for this user; the default port is
+        # what the daemon binds anyway
+        system_cfg = read_json(Path("/etc/rethinkd/config.json"), {}) or {}
+        listen = (system_cfg.get("settings") or {}).get("listen", listen)
+    return f"http://{listen}", token_value()
 
 
 def call(method: str, path: str, payload=None, timeout: float = 60.0):

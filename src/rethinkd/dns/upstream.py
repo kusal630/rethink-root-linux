@@ -136,8 +136,9 @@ class Upstream:
     @property
     def endpoint(self) -> str:
         if self._kind == "system":
-            servers = system_nameservers()
-            return ", ".join(servers) if servers else "system default"
+            # same view as resolve(): loopback stubs are never queried
+            servers = [s for s in system_nameservers() if not _is_loopback(s)] or ["9.9.9.9", "149.112.112.112"]
+            return ", ".join(servers)
         if self._kind in ("doh", "dot"):
             return self._url
         return self._url or "system default"

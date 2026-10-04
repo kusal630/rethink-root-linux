@@ -1,0 +1,43 @@
+#!/bin/sh
+# rethink-root-ui — open the Rethink Root web UI (desktop entry + manual use).
+set -eu
+
+BASE=$(python3 - <<'PY'
+import json, os, sys
+path = os.environ.get("RETHINK_CONFIG")
+if not path:
+    path = "/etc/rethinkd/config.json" if os.geteuid() == 0 else os.path.expanduser("~/.config/rethinkd/config.json")
+try:
+    with open(path, encoding="utf-8") as fh:
+        listen = (json.load(fh).get("settings") or {}).get("listen", "127.0.0.1:8777")
+except Exception:
+    listen = "127.0.0.1:8777"
+sys.stdout.write(f"http://{listen}")
+PY
+)
+
+TOKEN="${RETHINK_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  for f in "${RETHINK_CONFIG%/*}/token" "${HOME}/.config/rethinkd/token" "/etc/rethinkd/token"; do
+    [ -n "$f" ] && [ -r "$f" ] || continue
+    TOKEN=$(head -n1 "$f" 2>/dev/null | tr -d ' \n')
+    [ -n "$TOKEN" ] && break
+  done
+fi
+
+URL="$BASE/"
+[ -n "$TOKEN" ] && URL="$BASE/?token=$TOKEN"
+
+if ! python3 -c 'import sys, urllib.request; urllib.request.urlopen(sys.argv[1] + "/api/session", timeout=3)' "$BASE" 2>/dev/null; then
+  MSG="Rethink Root daemon is not running — systemctl status rethinkd"
+  command -v notify-send >/dev/null 2>&1 && notify-send "Rethink Root" "$MSG" || true
+  echo "$MSG" >&2
+  exit 1
+fi
+
+echo "$URL"
+if command -v xdg-open >/dev/null 2>&1; then
+  # detached: a headless session must not make the launcher hang
+  (setsid xdg-open "$URL" >/dev/null 2>&1 &) 2>/dev/null || (xdg-open "$URL" >/dev/null 2>&1 &)
+fi
+exit 0

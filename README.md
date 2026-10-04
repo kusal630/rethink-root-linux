@@ -41,17 +41,24 @@ sudo apt-get install -f                       # if python3/iptables need pulling
 The postinst creates a locked-down `rethinkd` system user, enables `rethinkd.service`
 and adds *you* (the `sudo`-ing user) to the `rethinkd` group so you can read the API token.
 
-Then:
+Then launch it — either from your app grid (**Rethink Root** entry, opens the
+web UI in your browser) or from a terminal:
 
 ```bash
-rethinkctl ui          # prints http://127.0.0.1:8777/?token=…
-rethinkctl ui --open   # …and opens it in your browser
+rethink-root-ui            # opens http://127.0.0.1:8777/?token=…
+rethinkctl ui --open       # same, from the CLI
+rethinkctl status
 ```
+
+The postinst copies the API token to `~/.config/rethinkd/token` so both work
+immediately; it also adds you to the `rethinkd` group, which takes effect at your
+next login. If `sg rethinkd …` is not available (on Pop!_OS `sg` is `ast-grep`),
+just use the copied token, `rethinkctl` as your user, or `sudo rethinkctl …`.
 
 **From source** (no root needed to develop):
 
 ```bash
-make test              # 69 unit/integration tests, stdlib unittest
+make test              # 71 unit/integration tests, stdlib unittest
 make smoke             # boots the daemon unprivileged, hits the API + UI
 make deb               # builds the .deb, source tarball and SHA256SUMS
 ```
@@ -116,6 +123,13 @@ sudo systemctl disable --now rethinkd
 sudo apt-get purge rethinkd     # keeps /etc/rethinkd; purge of the cache too
 ```
 
+Manual (non-package) run during development:
+
+```bash
+python3 -m rethinkd --dry-run --config /tmp/dev.json   # never touches iptables
+RETHINK_CONFIG=/tmp/dev.json rethinkctl status
+```
+
 ## Repository layout
 
 ```text
@@ -125,7 +139,7 @@ src/rethinkd/ui/        web UI (index.html, app.js, style.css, icon.svg)
 bin/rethinkctl          command line client
 systemd/rethinkd.service unit with capability hardening
 packaging/build-deb.sh  .deb + tarball + SHA256SUMS
-tests/                  stdlib unittest suite (69 tests)
+tests/                  stdlib unittest suite (71 tests)
 docs/api.md             the HTTP API contract
 ```
 

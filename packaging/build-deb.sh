@@ -29,7 +29,8 @@ find "$STAGE/usr/lib/rethinkd" -name '*.pyc' -delete
 
 # rethinkctl finds the package through /usr/lib/rethinkd, dev runs through tests/helpers
 cp bin/rethinkctl "$STAGE/usr/bin/rethinkctl"
-chmod 0755 "$STAGE/usr/bin/rethinkctl"
+cp packaging/rethink-root-ui "$STAGE/usr/bin/rethink-root-ui"
+chmod 0755 "$STAGE/usr/bin/rethinkctl" "$STAGE/usr/bin/rethink-root-ui"
 
 cp systemd/rethinkd.service "$STAGE/usr/lib/systemd/system/rethinkd.service"
 cp packaging/rethinkd.desktop "$STAGE/usr/share/applications/rethinkd.desktop"
@@ -76,6 +77,17 @@ case "$1" in
       systemctl enable rethinkd.service >/dev/null 2>&1 || true
       systemctl restart rethinkd.service >/dev/null 2>&1 || true
     fi
+    # the installing user gets a private copy of the API token so that the
+    # desktop launcher and rethinkctl work before the next login (new group)
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ] && [ -f /etc/rethinkd/token ]; then
+      UHOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+      if [ -n "$UHOME" ] && [ -d "$UHOME" ]; then
+        install -d -m 0700 -o "$SUDO_USER" -g "$SUDO_USER" "$UHOME/.config/rethinkd"
+        install -m 0600 -o "$SUDO_USER" -g "$SUDO_USER" /etc/rethinkd/token "$UHOME/.config/rethinkd/token"
+      fi
+    fi
+    command -v update-desktop-database >/dev/null 2>&1 && \
+      update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
     ;;
 esac
 exit 0

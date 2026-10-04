@@ -128,5 +128,55 @@ class FirewallDryRunTest(unittest.TestCase):
         self.assertFalse(Firewall.available())
 
 
+class ChainTableTest(unittest.TestCase):
+    """Regression: RETHINK_DNS/RETHINK_PROXY live in nat, RETHINK_APPS in filter."""
+
+    def test_chains_created_in_the_table_they_are_used_in(self):
+        filter_argv = Firewall._chain_argv("iptables", "filter")
+        nat_argv = Firewall._chain_argv("iptables", "nat")
+        flat_filter = " ".join(" ".join(a) for a in filter_argv)
+        flat_nat = " ".join(" ".join(a) for a in nat_argv)
+        self.assertIn(CHAIN_APPS, flat_filter)
+        self.assertNotIn(CHAIN_DNS, flat_filter)
+        self.assertNotIn(CHAIN_PROXY, flat_filter)
+        self.assertIn(CHAIN_DNS, flat_nat)
+        self.assertIn(CHAIN_PROXY, flat_nat)
+        self.assertNotIn(CHAIN_APPS, flat_nat)
+
+    def test_apply_never_touches_a_nat_chain_that_is_missing_from_nat(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(Path(tmp) / "config.json")
+            fw = Firewall(cfg, dry_run=True)
+            executed = fw.apply()
+        nat_tables = set(Firewall.CHAINS["nat"])
+        seen_nat_chains: set[str] = set()
+        filter_seen: set[str] = set()
+        for argv in executed:
+            if "-t" in argv and argv[argv.index("-t") + 1] == "filter" and "-N" in argv:
+                filter_seen.add(argv[argv.index("-N") + 1])
+        self.assertEqual(filter_seen, set(Firewall.CHAINS["filter"]))
+        for argv in executed:
+            if "nat" not in argv:
+                continue
+            table = argv[argv.index("-t") + 1] if "-t" in argv else ""
+            if table != "nat":
+                continue
+            for op in ("-N", "-F", "-A", "-C", "-D"):
+                if op in argv:
+                    chain = argv[argv.index(op) + 1]
+                    if op == "-N":
+                        seen_nat_chains.add(chain)
+                    elif chain.startswith("RETHINK"):  # OUTPUT is a built-in
+                        self.assertIn(
+                            chain, nat_tables,
+                            f"{op} {chain} in nat but that chain is never created there",
+                        )
+                    break
+        self.assertEqual(seen_nat_chains, nat_tables)
+
+
 if __name__ == "__main__":
     unittest.main()

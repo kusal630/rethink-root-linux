@@ -222,16 +222,16 @@ class Firewall:
         return executed
 
     # chain plumbing ---------------------------------------------------
+    # filter holds the per-app chain, nat holds the DNS + proxy redirects.
+    CHAINS: dict[str, list[str]] = {"filter": [CHAIN_APPS], "nat": [CHAIN_DNS, CHAIN_PROXY]}
+
     @staticmethod
     def _chain_argv(binary: str, table: str) -> list[list[str]]:
-        return [
-            [binary, "-w", "-t", table, "-N", CHAIN_APPS],
-            [binary, "-w", "-t", table, "-N", CHAIN_DNS],
-            [binary, "-w", "-t", table, "-N", CHAIN_PROXY],
-            [binary, "-w", "-t", table, "-F", CHAIN_APPS],
-            [binary, "-w", "-t", table, "-F", CHAIN_DNS],
-            [binary, "-w", "-t", table, "-F", CHAIN_PROXY],
-        ]
+        argvs: list[list[str]] = []
+        for chain in Firewall.CHAINS[table]:
+            argvs.append([binary, "-w", "-t", table, "-N", chain])
+            argvs.append([binary, "-w", "-t", table, "-F", chain])
+        return argvs
 
     @staticmethod
     def _jump_argv(binary: str, table: str, chain: str) -> tuple[list[str], list[str]]:
@@ -265,9 +265,11 @@ class Firewall:
             conf = self.cfg.data
             protected = bool(conf.get("protected", True))
 
-            # always (re)build chains so a flush/reload is clean
+            # always (re)build our chains so a flush/reload is clean; the
+            # chains live in different tables, so build both tables.
             for binary in (self.iptables, self.ip6tables):
                 executed += self._run_all(self._chain_argv(binary, "filter"))
+                executed += self._run_all(self._chain_argv(binary, "nat"))
 
             if not protected or not conf["firewall"].get("enabled", True):
                 executed += self._remove_jumps()
