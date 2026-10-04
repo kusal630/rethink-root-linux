@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""rethinkctl — control the rethinkd daemon from a terminal."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+# installed layout: /usr/lib/rethinkd holds the package; dev layout: tests/helpers
+for _site in (Path("/usr/lib/rethinkd"), Path(__file__).resolve().parents[1] / "src"):
+    if _site.is_dir() and str(_site) not in sys.path:
+        sys.path.insert(0, str(_site))
+
+DEFAULT_LISTEN = "127.0.0.1:8777"
+
+
+def config_path() -> Path:
+    if os.environ.get("RETHINK_CONFIG"):
+        return Path(os.environ["RETHINK_CONFIG"])
+    if os.geteuid() == 0:
+        return Path("/etc/rethinkd/config.json")
+    return Path.home() / ".config" / "rethinkd" / "config.json"
+
+
+def read_json(path: Path, default=None):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def endpoints() -> tuple[str, str]:
+    """(base url, token) from the config/token files, with sane fallbacks."""
+    cfg = read_json(config_path(), {}) or {}
+    listen = (cfg.get("settings") or {}).get("listen", DEFAULT_LISTEN)
+    token_file = config_path().parent / "token"
+    if not token_file.exists() and Path("/etc/rethinkd/token").exists():
+        token_file = Path("/etc/rethinkd/token")
+    try:
+        token = token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+    return f"http://{listen}", token
+
+
+def call(method: str, path: str, payload=None, timeout: float = 60.0):
+    base, token = endpoints()
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(base + path, data=data, method=method)
+    req.add_header("X-Auth-Token", token)
+    if data:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        raise SystemExit(f"rethinkctl: {exc.code} {body[:300]}") from exc
+    except OSError as exc:
+        raise SystemExit(f"rethinkctl: cannot reach the daemon at {base} ({exc})") from exc
+
+
+def ui_url() -> str:
+    base, token = endpoints()
+    return f"{base}/?token={token}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="rethinkctl", description="Control Rethink Root (Linux)")
+    sub = parser.add_subparsers(dest="cmd")
+
+    sub.add_parser("status", help="daemon status (default)")
+    p_ui = sub.add_parser("ui", help="print (and open) the web UI URL")
+    p_ui.add_argument("--open", action="store_true", help="xdg-open the URL")
+    p_token = sub.add_parser("token", help="show or rotate the API token")
+    p_token.add_argument("--rotate", action="store_true")
+    sub.add_parser("on", help="enable protection")
+    sub.add_parser("off", help="disable protection")
+
+    p_block = sub.add_parser("block", help="block a domain")
+    p_block.add_argument("domain")
+    p_allow = sub.add_parser("allow", help="allow a domain (overrides lists)")
+    p_allow.add_argument("domain")
+    p_unblock = sub.add_parser("unblock", help="remove a per-domain rule")
+    p_unblock.add_argument("domain")
+
+    p_app = sub.add_parser("app", help="per-app firewall")
+    app_sub = p_app.add_subparsers(dest="app_cmd")
+    app_sub.add_parser("list")
+    for action in ("block", "allow", "reset"):
+        p = app_sub.add_parser(action)
+        p.add_argument("uid", type=int)
+    p_policy = sub.add_parser("set-policy", help="allow | block")
+    p_policy.add_argument("value", choices=["allow", "block"])
+
+    sub.add_parser("list", help="show blocklists")
+    sub.add_parser("refresh", help="re-download every enabled list")
+    p_test = sub.add_parser("test", help="check a domain against the rules")
+    p_test.add_argument("domain")
+
+    sub.add_parser("dns", help="show DNS settings")
+    p_up = sub.add_parser("upstream", help="set the upstream resolver")
+    p_up.add_argument("type", choices=["system", "doh", "dot", "plain"])
+    p_up.add_argument("url", nargs="?", default="")
+
+    sub.add_parser("proxy", help="show proxy settings")
+    p_pset = sub.add_parser("proxy-set", help="http|socks5 host port [user]")
+    p_pset.add_argument("type", choices=["http", "socks5"])
+    p_pset.add_argument("host")
+    p_pset.add_argument("port", type=int)
+    p_pset.add_argument("user", nargs="?", default="")
+    sub.add_parser("proxy-on")
+    sub.add_parser("proxy-off")
+
+    p_log = sub.add_parser("log", help="tail the DNS query log")
+    p_log.add_argument("-n", type=int, default=20)
+
+    args = parser.parse_args(argv)
+    cmd = args.cmd or "status"
+
+    if cmd == "status":
+        s = call("GET", "/api/status")
+        print(f"rethinkd {s['version']}  uptime {s['uptime_s']}s  running as {s['running_as']}")
+        print(f"protection : {'ON' if s['protected'] else 'OFF'}")
+        print(
+            f"dns        : {s['dns']['queries']} queries, {s['dns']['blocked']} blocked "
+            f"({s['dns']['block_rate']}%), upstream {s['dns']['upstream']} → {s['dns']['upstream_url']}"
+        )
+        print(f"firewall   : {'active' if s['firewall']['enabled'] else 'inactive'}, policy {s['firewall']['policy']}, "
+              f"{s['firewall']['apps_blocked']} app(s) blocked")
+        print(f"proxy      : {'on → ' + str(s['proxy']['endpoint']) if s['proxy']['enabled'] else 'off'}")
+        if s["firewall"].get("error"):
+            print(f"warning    : {s['firewall']['error']}")
+        return 0
+    if cmd == "ui":
+        url = ui_url()
+        print(url)
+        if args.open:
+            os.spawnlp(os.P_NOWAIT, "xdg-open", "xdg-open", url)
+        return 0
+    if cmd == "token":
+        if args.rotate:
+            new = call("POST", "/api/settings", {})  # touch first so a live daemon is required
+            del new
+            token_file = config_path().parent / "token"
+            if not token_file.exists():
+                token_file = Path("/etc/rethinkd/token")
+            import secrets
+
+            token_file.write_text(secrets.token_urlsafe(24) + "\n", encoding="utf-8")
+            os.chmod(token_file, 0o600)
+            print("token rotated — restart rethinkd and run `rethinkctl ui` again")
+        else:
+            print(ui_url())
+        return 0
+    if cmd == "on":
+        call("POST", "/api/protected", {"on": True})
+        print("protection enabled")
+        return 0
+    if cmd == "off":
+        call("POST", "/api/protected", {"on": False})
+        print("protection disabled")
+        return 0
+    if cmd == "block":
+        call("POST", "/api/dns/domain", {"domain": args.domain, "action": "block"})
+        print(f"blocked {args.domain}")
+        return 0
+    if cmd == "allow":
+        call("POST", "/api/dns/domain", {"domain": args.domain, "action": "allow"})
+        print(f"allowed {args.domain}")
+        return 0
+    if cmd == "unblock":
+        call("DELETE", f"/api/dns/domain/{args.domain}")
+        print(f"removed rule for {args.domain}")
+        return 0
+    if cmd == "app":
+        if args.app_cmd == "list" or args.app_cmd is None:
+            data = call("GET", "/api/apps")
+            print(f"policy: {data['policy']}")
+            for app in data["apps"][:40]:
+                marker = " *" if app.get("explicit") else ""
+                print(f"  {app['uid']:>6}  {app['name']:<20} {app['action']:<6} conns={app['conns']}{marker}")
+            if len(data["apps"]) > 40:
+                print(f"  … {len(data['apps']) - 40} more")
+            return 0
+        if args.app_cmd == "reset":
+            call("DELETE", f"/api/apps/{args.uid}")
+        else:
+            call("POST", "/api/apps", {"uid": args.uid, "action": args.app_cmd})
+        print(f"app uid {args.uid}: {args.app_cmd}")
+        return 0
+    if cmd == "set-policy":
+        call("POST", "/api/policy", {"policy": args.value})
+        print(f"default policy: {args.value}")
+        return 0
+    if cmd == "list":
+        data = call("GET", "/api/blocklists")
+        for cat in data["categories"]:
+            mark = "x" if cat["enabled"] else " "
+            err = f"  ! {cat['last_error']}" if cat["last_error"] else ""
+            print(f" [{mark}] {cat['id']:<10} {cat['domains']:>8} domains{err}")
+        for entry in data["custom"]:
+            mark = "x" if entry["enabled"] else " "
+            print(f" [{mark}] {entry['url']} ({entry['domains']} domains)")
+        print(f"total: {data['totals']['domains']} domains from {data['totals']['enabled']} lists")
+        return 0
+    if cmd == "refresh":
+        result = call("POST", "/api/blocklists/refresh", {}, timeout=300)
+        print(f"refreshed {result['categories']} categories, {result['domains']} domains")
+        return 0
+    if cmd == "test":
+        result = call("POST", "/api/blocklists/test", {"domain": args.domain})
+        verdict = "BLOCKED" if result["blocked"] else "allowed"
+        print(f"{args.domain}: {verdict} ({result['reason']})")
+        return 0
+    if cmd == "dns":
+        data = call("GET", "/api/dns")
+        print(f"upstream : {data['upstream']['type']} {data['upstream'].get('url', '')}")
+        print(f"hijack   : {'on' if data['hijack'] else 'off'}  listen {data['listen']}")
+        print(f"queries  : {data['queries']} total, {data['blocked']} blocked")
+        print(f"overrides: {len(data['block'])} blocked, {len(data['allow'])} allowed")
+        return 0
+    if cmd == "upstream":
+        call("POST", "/api/dns/upstream", {"type": args.type, "url": args.url})
+        print(f"upstream set to {args.type} {args.url}".strip())
+        return 0
+    if cmd == "proxy":
+        data = call("GET", "/api/proxy")
+        print(json.dumps(data, indent=2))
+        return 0
+    if cmd == "proxy-set":
+        payload = {"type": args.type, "host": args.host, "port": args.port, "username": args.user}
+        call("POST", "/api/proxy", payload)
+        print(f"proxy set: {args.type}://{args.host}:{args.port}")
+        return 0
+    if cmd in ("proxy-on", "proxy-off"):
+        call("POST", "/api/proxy/toggle", {"enabled": cmd == "proxy-on"})
+        print("proxy " + ("enabled" if cmd == "proxy-on" else "disabled"))
+        return 0
+    if cmd == "log":
+        data = call("GET", f"/api/dns?limit={args.n}")
+        for entry in data["log"][: args.n]:
+            flag = "BLOCK" if entry["blocked"] else "allow"
+            print(f"{entry['t']}  {flag:<5} {entry['type']:<5} {entry['name']}  {entry.get('reason') or ''}")
+        return 0
+
+    parser.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

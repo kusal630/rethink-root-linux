@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Rethink Root
+Comment=DNS firewall, per-app blocking and proxy for Linux
+Exec=rethinkctl ui --open
+Icon=rethink-root
+Terminal=false
+Categories=Network;Security;
+Keywords=firewall;dns;adblock;privacy;tracker;

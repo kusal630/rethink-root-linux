@@ -1,0 +1,32 @@
+[Unit]
+Description=Rethink Root — system-wide DNS firewall and per-app blocker
+Documentation=https://github.com/kusal630/rethink-root-linux
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=rethinkd
+Group=rethinkd
+WorkingDirectory=/var/lib/rethinkd
+Environment=PYTHONPATH=/usr/lib/rethinkd
+ExecStart=/usr/bin/python3 -m rethinkd --config /etc/rethinkd/config.json
+Restart=on-failure
+RestartSec=2
+
+# enough privilege to own the firewall and bind :53, nothing more
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/rethinkd /var/lib/rethinkd
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Rethink Root — DNS firewall, per-app blocker and proxy daemon for Linux.">
+<title>Rethink Root</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<script>
+  /* Apply the stored theme before first paint so there is no flash of wrong theme. */
+  (function () {
+    try {
+      var t = localStorage.getItem('rethink_theme') || 'dark';
+      if (t === 'system') {
+        t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
+</head>
+<body>
+
+<!-- ================= icon sprite (inline, no external requests) ================= -->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="ic-dash" viewBox="0 0 24 24">
+    <rect x="3.5" y="3.5" width="7" height="7" rx="2"/>
+    <rect x="13.5" y="3.5" width="7" height="4.5" rx="2"/>
+    <rect x="13.5" y="11" width="7" height="9.5" rx="2"/>
+    <rect x="3.5" y="13.5" width="7" height="7" rx="2"/>
+  </symbol>
+  <symbol id="ic-apps" viewBox="0 0 24 24">
+    <rect x="3" y="4.5" width="18" height="15" rx="2.5"/>
+    <path d="M3 9.2h18"/>
+    <path d="M6.4 6.8h.01M9.4 6.8h.01"/>
+  </symbol>
+  <symbol id="ic-shield" viewBox="0 0 24 24">
+    <path d="M12 3.2 19 6v5.4c0 4.3-2.9 7.4-7 9.4-4.1-2-7-5.1-7-9.4V6l7-2.8Z"/>
+    <path d="m9.2 12 2.1 2.1 4.3-4.4"/>
+  </symbol>
+  <symbol id="ic-dns" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5"/>
+    <path d="M3.5 12h17"/>
+    <path d="M12 3.5c2.4 2.7 2.4 14.3 0 17M12 3.5c-2.4 2.7-2.4 14.3 0 17"/>
+  </symbol>
+  <symbol id="ic-proxy" viewBox="0 0 24 24">
+    <path d="M3.5 8.5h13"/>
+    <path d="m13 5 3.5 3.5L13 12"/>
+    <path d="M20.5 15.5h-13"/>
+    <path d="M11 12 7.5 15.5 11 19"/>
+  </symbol>
+  <symbol id="ic-activity" viewBox="0 0 24 24">
+    <path d="M3 12.5h4l2.6-7.2 4 14.4 2.6-7.2H21"/>
+  </symbol>
+  <symbol id="ic-settings" viewBox="0 0 24 24">
+    <path d="M4 7.5h9M18.5 7.5H20M4 16.5h4.5M14 16.5H20"/>
+    <circle cx="15.5" cy="7.5" r="2.4"/>
+    <circle cx="11" cy="16.5" r="2.4"/>
+  </symbol>
+  <symbol id="ic-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24"><path d="m5 12.5 4.6 4.6L19 7.6"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24"><path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/></symbol>
+  <symbol id="ic-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+  <symbol id="ic-trash" viewBox="0 0 24 24">
+    <path d="M4.5 7h15"/>
+    <path d="M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7"/>
+    <path d="m6.6 7 .8 12c.1.9.8 1.5 1.7 1.5h5.8c.9 0 1.6-.6 1.7-1.5l.8-12"/>
+  </symbol>
+  <symbol id="ic-refresh" viewBox="0 0 24 24">
+    <path d="M4.5 12a7.5 7.5 0 0 1 12.9-5.3"/>
+    <path d="M17.5 3.5v3.5H14"/>
+    <path d="M19.5 12a7.5 7.5 0 0 1-12.9 5.3"/>
+    <path d="M6.5 20.5V17H10"/>
+  </symbol>
+  <symbol id="ic-flask" viewBox="0 0 24 24">
+    <path d="M9.5 3.5h5"/>
+    <path d="M10.5 3.5v6.3L5.9 17.7A2 2 0 0 0 7.6 20.7h8.8a2 2 0 0 0 1.7-3l-4.6-7.9V3.5"/>
+    <path d="M8.2 14.5h7.6"/>
+  </symbol>
+  <symbol id="ic-eye" viewBox="0 0 24 24">
+    <path d="M2.8 12S6.4 5.8 12 5.8 21.2 12 21.2 12 17.6 18.2 12 18.2 2.8 12 2.8 12Z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </symbol>
+  <symbol id="ic-pause" viewBox="0 0 24 24"><path d="M9.5 5.5v13M14.5 5.5v13"/></symbol>
+  <symbol id="ic-play" viewBox="0 0 24 24"><path d="M8 5.5 18.5 12 8 18.5Z"/></symbol>
+  <symbol id="ic-link" viewBox="0 0 24 24">
+    <path d="M10.2 13.8a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 1 0-5.7-5.7l-1 1"/>
+    <path d="M13.8 10.2a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 1 0 5.7 5.7l1-1"/>
+  </symbol>
+  <symbol id="ic-info" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5"/>
+    <path d="M12 11.2v5.3M12 7.9h.01"/>
+  </symbol>
+  <symbol id="ic-clock" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.5"/>
+    <path d="M12 7.4V12l3.1 1.9"/>
+  </symbol>
+</svg>
+
+<!-- ================= connect / token screen ================= -->
+<div class="connect" id="connect" hidden>
+  <div class="connect-card">
+    <img class="connect-mark" src="/icon.svg" alt="" width="46" height="46">
+    <h1 class="connect-title">Connect to Rethink Root</h1>
+    <p class="connect-lead">
+      The daemon serves this page at <code id="connect-host">127.0.0.1:8777</code>,
+      but this browser has no token for it yet.
+    </p>
+    <ol class="connect-steps">
+      <li>Open a terminal on this machine.</li>
+      <li>Run <code>rethinkctl ui</code> — it prints a fresh token.</li>
+      <li>Paste the token below.</li>
+    </ol>
+    <div class="code-row">
+      <code>rethinkctl ui</code>
+      <button class="btn btn-ghost btn-sm" type="button" id="copy-cmd">Copy</button>
+    </div>
+    <form id="connect-form" autocomplete="off">
+      <label class="label" for="connect-token">Daemon token</label>
+      <input class="input" type="password" id="connect-token" name="token"
+             placeholder="paste token…" spellcheck="false" autocapitalize="off" required>
+      <div class="connect-actions">
+        <button class="btn btn-primary" type="submit">Connect</button>
+        <button class="btn btn-ghost" type="button" id="connect-retry">Retry</button>
+      </div>
+      <p class="form-err" id="connect-err" hidden></p>
+    </form>
+    <p class="connect-note">
+      The token is kept only in this browser's localStorage and sent to the daemon as the
+      <code>X-Auth-Token</code> header. Rotate it any time with <code>rethinkctl token</code>.
+    </p>
+  </div>
+</div>
+
+<!-- ================= application shell ================= -->
+<div class="app" id="app" hidden>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <img class="brand-mark" src="/icon.svg" alt="" width="28" height="28">
+      <span class="brand-name">Rethink Root</span>
+    </div>
+
+    <nav class="nav" id="nav" aria-label="Main navigation">
+      <button class="nav-item is-active" type="button" data-page="dashboard" aria-current="page">
+        <svg class="ic" aria-hidden="true"><use href="#ic-dash"/></svg><span>Dashboard</span>
+      </button>
+      <button class="nav-item" type="button" data-page="apps">
+        <svg class="ic" aria-hidden="true"><use href="#ic-apps"/></svg><span>Apps</span>
+      </button>
+      <button class="nav-item" type="button" data-page="blocklists">
+        <svg class="ic" aria-hidden="true"><use href="#ic-shield"/></svg><span>Blocklists</span>
+      </button>
+      <button class="nav-item" type="button" data-page="dns">
+        <svg class="ic" aria-hidden="true"><use href="#ic-dns"/></svg><span>DNS</span>
+      </button>
+      <button class="nav-item" type="button" data-page="proxy">
+        <svg class="ic" aria-hidden="true"><use href="#ic-proxy"/></svg><span>Proxy</span>
+      </button>
+      <button class="nav-item" type="button" data-page="activity">
+        <svg class="ic" aria-hidden="true"><use href="#ic-activity"/></svg><span>Activity</span>
+      </button>
+      <button class="nav-item" type="button" data-page="settings">
+        <svg class="ic" aria-hidden="true"><use href="#ic-settings"/></svg><span>Settings</span>
+      </button>
+    </nav>
+
+    <div class="side-foot">
+      <span class="side-version" id="side-version">rethinkd —</span>
+    </div>
+  </aside>
+  <div class="side-scrim" id="side-scrim" hidden></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" type="button" id="menu-btn"
+              aria-label="Open navigation" aria-expanded="false">
+        <svg class="ic" aria-hidden="true"><use href="#ic-menu"/></svg>
+      </button>
+
+      <div class="topbar-brand only-mobile">
+        <img class="brand-mark" src="/icon.svg" alt="" width="22" height="22">
+        <span>Rethink Root</span>
+      </div>
+
+      <div class="topbar-title">
+        <h1 id="page-title">Dashboard</h1>
+      </div>
+
+      <div class="topbar-right">
+        <button class="protect is-on" type="button" id="protect-btn" role="switch" aria-checked="true">
+          <span class="protect-track"><span class="protect-knob"></span></span>
+          <span class="protect-text">
+            <span class="protect-label">Protection</span>
+            <span class="protect-state" id="protect-state">On</span>
+          </span>
+        </button>
+
+        <div class="top-meta" id="top-meta" title="Version and uptime">
+          <span id="top-version">—</span>
+          <span class="dot-sep" aria-hidden="true"></span>
+          <span id="top-uptime">—</span>
+        </div>
+
+        <span class="conn" id="conn" data-state="busy" role="img"
+              aria-label="Connection to daemon" title="Connection to rethinkd">
+          <span class="conn-dot"></span>
+        </span>
+      </div>
+    </header>
+
+    <main class="content" id="content">
+      <section class="page" id="page-dashboard" aria-label="Dashboard"></section>
+      <section class="page" id="page-apps" aria-label="Apps" hidden></section>
+      <section class="page" id="page-blocklists" aria-label="Blocklists" hidden></section>
+      <section class="page" id="page-dns" aria-label="DNS" hidden></section>
+      <section class="page" id="page-proxy" aria-label="Proxy" hidden></section>
+      <section class="page" id="page-activity" aria-label="Activity" hidden></section>
+      <section class="page" id="page-settings" aria-label="Settings" hidden></section>
+    </main>
+  </div>
+</div>
+
+<!-- ================= overlays ================= -->
+<div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-scrim" data-act="cancel"></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h2 class="modal-title" id="modal-title">Confirm</h2>
+    <p class="modal-msg" id="modal-msg"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" type="button" id="modal-cancel">Cancel</button>
+      <button class="btn btn-danger" type="button" id="modal-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
