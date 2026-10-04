@@ -12,4 +12,4 @@ deb:
 	./packaging/build-deb.sh
 
 clean:
-	rm -rf dist src/rethinkd/__pycache__ src/rethinkd/*/__pycache__ tests/__pycache__
+	rm -rf dist src/*/__pycache__ src/*/*/__pycache__ tests/__pycache__

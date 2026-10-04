@@ -24,16 +24,19 @@ mkdir -p \
   "$STAGE/DEBIAN"
 
 cp -r src/rethinkd "$STAGE/usr/lib/rethinkd/rethinkd"
+cp -r src/rethinkapp "$STAGE/usr/lib/rethinkd/rethinkapp"
 find "$STAGE/usr/lib/rethinkd" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$STAGE/usr/lib/rethinkd" -name '*.pyc' -delete
 
-# rethinkctl finds the package through /usr/lib/rethinkd, dev runs through tests/helpers
+# rethinkctl / rethinkapp find the package through /usr/lib/rethinkd
 cp bin/rethinkctl "$STAGE/usr/bin/rethinkctl"
 cp packaging/rethink-root-ui "$STAGE/usr/bin/rethink-root-ui"
-chmod 0755 "$STAGE/usr/bin/rethinkctl" "$STAGE/usr/bin/rethink-root-ui"
+cp packaging/rethink-app "$STAGE/usr/bin/rethink-app"
+chmod 0755 "$STAGE/usr/bin/rethinkctl" "$STAGE/usr/bin/rethink-root-ui" "$STAGE/usr/bin/rethink-app"
 
 cp systemd/rethinkd.service "$STAGE/usr/lib/systemd/system/rethinkd.service"
 cp packaging/rethinkd.desktop "$STAGE/usr/share/applications/rethinkd.desktop"
+cp packaging/rethinkd-web.desktop "$STAGE/usr/share/applications/rethinkd-web.desktop"
 cp src/rethinkd/ui/icon.svg "$STAGE/usr/share/icons/hicolor/scalable/apps/rethink-root.svg"
 
 SIZE=$(du -sk "$STAGE" | cut -f1)
@@ -44,15 +47,18 @@ Section: net
 Priority: optional
 Architecture: $ARCH
 Depends: python3 (>= 3.9), iptables
+Recommends: python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1
 Installed-Size: $SIZE
 Maintainer: Rethink Root <rethink-root@users.noreply.github.com>
 Homepage: https://github.com/kusal630/rethink-root-linux
 Description: system-wide DNS firewall, per-app blocker and proxy for Linux
  Rethink Root runs at the root level of your machine: it filters DNS for the
  whole system, blocks selected apps from talking to the network, and can send
- outbound traffic through your own HTTP/SOCKS5 proxy. A local web UI and the
- rethinkctl command drive every feature; the daemon itself is a single
- dependency-free Python process.
+ outbound traffic through your own HTTP/SOCKS5 proxy. A native GTK4/libadwaita
+ app ("Rethink Root" in your app grid), a local web UI and the rethinkctl
+ command drive every feature; the daemon itself is a single dependency-free
+ Python process. Without the GTK bindings the launcher falls back to the web
+ UI.
 EOF
 
 cat > "$STAGE/DEBIAN/postinst" <<'EOF'

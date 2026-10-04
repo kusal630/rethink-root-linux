@@ -400,6 +400,8 @@ class Daemon:
         token = self.cfg.token()
         return {
             **settings,
+            "version": self.version,
+            "uptime_s": int(time.time() - self.started),
             "token_hint": token[:8],
             "dry_run": self.dry_run,
         }

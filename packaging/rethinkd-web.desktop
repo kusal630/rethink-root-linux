@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Rethink Root (Web UI)
+GenericName=DNS Firewall
+Comment=Open the Rethink Root web interface
+Exec=rethink-root-ui
+Icon=rethink-root
+Terminal=false
+StartupNotify=false
+Categories=Network;Security;Settings;
+Keywords=firewall;dns;adblock;tracker;privacy;proxy;root;web;

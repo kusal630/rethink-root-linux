@@ -7,83 +7,16 @@ import argparse
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 # installed layout: /usr/lib/rethinkd holds the package; dev layout: tests/helpers
-for _site in (Path("/usr/lib/rethinkd"), Path(__file__).resolve().parents[1] / "src"):
-    if _site.is_dir() and str(_site) not in sys.path:
+# prefer the working tree; fall back to the installed package
+for _site in (Path(__file__).resolve().parents[1] / "src", Path("/usr/lib/rethinkd")):
+    if _site.is_dir():
         sys.path.insert(0, str(_site))
+        break
 
-DEFAULT_LISTEN = "127.0.0.1:8777"
-
-
-def config_path() -> Path:
-    if os.environ.get("RETHINK_CONFIG"):
-        return Path(os.environ["RETHINK_CONFIG"])
-    if os.geteuid() == 0:
-        return Path("/etc/rethinkd/config.json")
-    return Path.home() / ".config" / "rethinkd" / "config.json"
-
-
-def read_json(path: Path, default=None):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return default
-
-
-def token_value() -> str:
-    if os.environ.get("RETHINK_TOKEN"):
-        return os.environ["RETHINK_TOKEN"].strip()
-    candidates = []
-    if os.environ.get("RETHINK_CONFIG"):
-        candidates.append(Path(os.environ["RETHINK_CONFIG"]).parent / "token")
-    candidates.append(Path.home() / ".config" / "rethinkd" / "token")
-    candidates.append(Path("/etc/rethinkd/token"))
-    for candidate in candidates:
-        try:
-            value = candidate.read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
-        if value:
-            return value
-    return ""
-
-
-def endpoints() -> tuple[str, str]:
-    """(base url, token) from the config/token files, with sane fallbacks."""
-    cfg = read_json(config_path(), {}) or {}
-    listen = (cfg.get("settings") or {}).get("listen", DEFAULT_LISTEN)
-    if not listen or listen == DEFAULT_LISTEN:
-        # the system config may be unreadable for this user; the default port is
-        # what the daemon binds anyway
-        system_cfg = read_json(Path("/etc/rethinkd/config.json"), {}) or {}
-        listen = (system_cfg.get("settings") or {}).get("listen", listen)
-    return f"http://{listen}", token_value()
-
-
-def call(method: str, path: str, payload=None, timeout: float = 60.0):
-    base, token = endpoints()
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(base + path, data=data, method=method)
-    req.add_header("X-Auth-Token", token)
-    if data:
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode() or "{}")
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode(errors="replace")
-        raise SystemExit(f"rethinkctl: {exc.code} {body[:300]}") from exc
-    except OSError as exc:
-        raise SystemExit(f"rethinkctl: cannot reach the daemon at {base} ({exc})") from exc
-
-
-def ui_url() -> str:
-    base, token = endpoints()
-    return f"{base}/?token={token}"
+from rethinkd.client import ApiError, call, ui_url  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -270,4 +203,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except ApiError as exc:
+        print(f"rethinkctl: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc

@@ -18,8 +18,12 @@ PY
 
 TOKEN="${RETHINK_TOKEN:-}"
 if [ -z "$TOKEN" ]; then
-  for f in "${RETHINK_CONFIG%/*}/token" "${HOME}/.config/rethinkd/token" "/etc/rethinkd/token"; do
-    [ -n "$f" ] && [ -r "$f" ] || continue
+  CANDIDATES="${HOME}/.config/rethinkd/token /etc/rethinkd/token"
+  if [ -n "${RETHINK_CONFIG:-}" ]; then
+    CANDIDATES="$(dirname "$RETHINK_CONFIG")/token $CANDIDATES"
+  fi
+  for f in $CANDIDATES; do
+    [ -r "$f" ] || continue
     TOKEN=$(head -n1 "$f" 2>/dev/null | tr -d ' \n')
     [ -n "$TOKEN" ] && break
   done

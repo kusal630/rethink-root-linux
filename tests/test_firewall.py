@@ -178,5 +178,54 @@ class ChainTableTest(unittest.TestCase):
         self.assertEqual(seen_nat_chains, nat_tables)
 
 
+class FamilyRulesTest(unittest.TestCase):
+    """ip6tables rejects IPv4 CIDRs: each family gets its own loopback/LAN set."""
+
+    def test_family_of_binary(self):
+        from rethinkd.firewall import family_of
+
+        self.assertEqual(family_of("iptables"), 4)
+        self.assertEqual(family_of("/usr/sbin/iptables"), 4)
+        self.assertEqual(family_of("ip6tables"), 6)
+        self.assertEqual(family_of("/usr/sbin/ip6tables"), 6)
+
+    def test_dns_rules_v4_vs_v6(self):
+        v4 = " ".join(" ".join(r) for r in dns_rules(5300, 7, 4))
+        v6 = " ".join(" ".join(r) for r in dns_rules(5300, 7, 6))
+        self.assertIn("127.0.0.0/8", v4)
+        self.assertNotIn("::1/128", v4)
+        self.assertIn("::1/128", v6)
+        self.assertNotIn("127.0.0.0/8", v6)
+        self.assertNotIn("10.0.0.0/8", v6)
+
+    def test_proxy_rules_v4_vs_v6(self):
+        v4 = " ".join(" ".join(r) for r in proxy_rules(5301, 7, True, 4))
+        v6 = " ".join(" ".join(r) for r in proxy_rules(5301, 7, True, 6))
+        self.assertIn("192.168.0.0/16", v4)
+        self.assertNotIn("fc00::/7", v4)
+        self.assertIn("fc00::/7", v6)
+        self.assertNotIn("192.168.0.0/16", v6)
+
+    def test_no_ipv4_cidr_ever_reaches_ip6tables(self):
+        import tempfile
+        from pathlib import Path
+
+        from rethinkd.firewall import Firewall, family_of
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(Path(tmp) / "config.json")
+            cfg.set("proxy", {"enabled": True, "type": "http", "host": "127.0.0.1", "port": 5301,
+                              "username": "", "password": "", "bypass_lan": True, "bypass_domains": []})
+            fw = Firewall(cfg, dry_run=True)
+            executed = fw.apply()
+        ipv4_only = ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/4")
+        for argv in executed:
+            if family_of(argv[0]) != 6:
+                continue
+            text = " ".join(argv)
+            for cidr in ipv4_only:
+                self.assertNotIn(cidr, text, f"IPv4 CIDR {cidr} in an ip6tables rule: {text}")
+
+
 if __name__ == "__main__":
     unittest.main()

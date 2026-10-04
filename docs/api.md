@@ -108,7 +108,8 @@ whether to show the token screen.
 ### GET /api/settings
 ```json
 {"theme":"dark","start_protected":true,"log_level":"info",
- "listen":"127.0.0.1:8777","token_hint":"a1b2c3d4"}
+ "listen":"127.0.0.1:8777","token_hint":"a1b2c3d4",
+ "version":"0.1.3","uptime_s":120,"dry_run":false}
 ```
 * `POST /api/settings` → `{"ok":true}`
 

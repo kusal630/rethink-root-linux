@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import threading
+from pathlib import Path
 from collections import Counter
 from typing import Any
 
@@ -55,22 +56,30 @@ def app_rules(policy: str, apps: dict[str, str], exempt_uid: int) -> list[list[s
     return rules
 
 
-def dns_rules(port: int, exempt_uid: int) -> list[list[str]]:
+LOOPBACK = {4: "127.0.0.0/8", 6: "::1/128"}
+
+
+def dns_rules(port: int, exempt_uid: int, family: int = 4) -> list[list[str]]:
+    """Redirect every port-53 query to us, except our own uid and loopback.
+
+    ``family`` picks the address family's loopback — ip6tables rejects IPv4
+    CIDRs outright (`host/network '127.0.0.0' not found`).
+    """
     return [
         ["-m", "owner", "--uid-owner", str(exempt_uid), "-j", "RETURN"],
-        ["-d", "127.0.0.0/8", "-j", "RETURN"],
+        ["-d", LOOPBACK[family], "-j", "RETURN"],
         ["-p", "udp", "--dport", "53", "-j", "REDIRECT", "--to-ports", str(port)],
         ["-p", "tcp", "--dport", "53", "-j", "REDIRECT", "--to-ports", str(port)],
     ]
 
 
-def proxy_rules(port: int, exempt_uid: int, bypass_lan: bool) -> list[list[str]]:
+def proxy_rules(port: int, exempt_uid: int, bypass_lan: bool, family: int = 4) -> list[list[str]]:
     rules: list[list[str]] = [
         ["-m", "owner", "--uid-owner", str(exempt_uid), "-j", "RETURN"],
         ["-o", "lo", "-j", "RETURN"],
     ]
     if bypass_lan:
-        for net in PRIVATE_V4:
+        for net in (PRIVATE_V4 if family == 4 else PRIVATE_V6):
             rules.append(["-d", net, "-j", "RETURN"])
     rules.append(["-p", "tcp", "-j", "REDIRECT", "--to-ports", str(port)])
     return rules
@@ -276,32 +285,31 @@ class Firewall:
                 self._applied = False
                 return executed
 
-            # filter: per-app
+            # filter: per-app (owner matches are family-independent)
             rules = app_rules(conf["firewall"].get("policy", "allow"), conf["firewall"].get("apps", {}), own_uid)
             for binary in (self.iptables, self.ip6tables):
                 for rule in rules:
                     executed += self._run_all([[binary, "-w", "-t", "filter", "-A", CHAIN_APPS, *rule]])
                 executed += self._set_jump(binary, "filter", CHAIN_APPS, True)
 
-            # nat: DNS hijack + proxy redirect (IPv4 and IPv6)
+            # nat: DNS hijack + proxy redirect (IPv4 and IPv6 need their own
+            # loopback/LAN ranges — ip6tables rejects IPv4 CIDRs)
             dns_port = _listen_port(conf["dns"].get("listen", []), 5300)
-            if conf["dns"].get("hijack", True):
-                for binary in (self.iptables, self.ip6tables):
-                    for rule in dns_rules(dns_port, own_uid):
+            for binary in (self.iptables, self.ip6tables):
+                family = family_of(binary)
+                if conf["dns"].get("hijack", True):
+                    for rule in dns_rules(dns_port, own_uid, family):
                         executed += self._run_all([[binary, "-w", "-t", "nat", "-A", CHAIN_DNS, *rule]])
                     executed += self._set_jump(binary, "nat", CHAIN_DNS, True)
-            else:
-                for binary in (self.iptables, self.ip6tables):
+                else:
                     executed += self._set_jump(binary, "nat", CHAIN_DNS, False)
 
-            proxy = conf.get("proxy", {})
-            if proxy.get("enabled") and proxy.get("port"):
-                for binary in (self.iptables, self.ip6tables):
-                    for rule in proxy_rules(int(proxy["port"]), own_uid, bool(proxy.get("bypass_lan", True))):
+                proxy = conf.get("proxy", {})
+                if proxy.get("enabled") and proxy.get("port"):
+                    for rule in proxy_rules(int(proxy["port"]), own_uid, bool(proxy.get("bypass_lan", True)), family):
                         executed += self._run_all([[binary, "-w", "-t", "nat", "-A", CHAIN_PROXY, *rule]])
                     executed += self._set_jump(binary, "nat", CHAIN_PROXY, True)
-            else:
-                for binary in (self.iptables, self.ip6tables):
+                else:
                     executed += self._set_jump(binary, "nat", CHAIN_PROXY, False)
 
             self._applied = True
@@ -366,6 +374,11 @@ def _ignorable(argv: list[str], stderr: str) -> bool:
     if "-N" in argv and "chain already exists" in text:
         return True
     return False
+
+
+def family_of(binary: str) -> int:
+    """4 for iptables, 6 for ip6tables (IPv4 CIDRs make ip6tables fail)."""
+    return 6 if Path(binary).name.startswith("ip6") else 4
 
 
 def _listen_port(listen: list[str], default: int) -> int:

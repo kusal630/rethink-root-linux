@@ -1,14 +1,17 @@
 # Rethink Root — Linux edition
 
-**System-wide DNS firewall, per-app blocker and outbound proxy for your Linux desktop, driven by a local web UI.**
+**System-wide DNS firewall, per-app blocker and outbound proxy for your Linux desktop, driven by a native COSMIC/GTK app.**
 
 Rethink Root runs *at the root level of the machine*: one daemon owns DNS for the whole
 system, installs three dedicated `iptables` chains for per-app policy, and can transparently
-push outbound TCP through your own HTTP/SOCKS5 proxy. Everything is controlled from a dark/light
-web UI on `127.0.0.1:8777` or from the `rethinkctl` command line.
+push outbound TCP through your own HTTP/SOCKS5 proxy. Everything is controlled from the native
+GTK4/libadwaita app, from a local web UI on `127.0.0.1:8777`, or from the `rethinkctl` command line.
 
 * Daemon: `rethinkd` — a single, dependency-free Python 3 process (stdlib only).
-* UI: vanilla HTML/CSS/JS served by the daemon itself — no CDN, no build step, no phone-home.
+* Desktop app: native GTK4 + libadwaita window (`rethink-app`, ships as its own launch entry) —
+  dashboard, per-app rules, DNS, lists, proxy and settings, no browser required.
+* Web UI: vanilla HTML/CSS/JS served by the daemon itself — no CDN, no build step, no phone-home;
+  still available (and used automatically if the GTK bindings are missing).
 * Packaged as a `.deb`, runs under systemd with only `CAP_NET_ADMIN`,
   `CAP_NET_BIND_SERVICE` and `CAP_NET_RAW`.
 * Apache-2.0 licensed.
@@ -34,21 +37,25 @@ our own chains.
 ## Install
 
 ```bash
-sudo dpkg -i dist/rethinkd_0.1.0_amd64.deb   # from a release asset
+sudo dpkg -i dist/rethinkd_0.1.3_amd64.deb   # from a release asset
 sudo apt-get install -f                       # if python3/iptables need pulling in
 ```
 
 The postinst creates a locked-down `rethinkd` system user, enables `rethinkd.service`
 and adds *you* (the `sudo`-ing user) to the `rethinkd` group so you can read the API token.
 
-Then launch it — either from your app grid (**Rethink Root** entry, opens the
-web UI in your browser) or from a terminal:
+Then launch it — from your app grid (**Rethink Root** is the native window;
+**Rethink Root (Web UI)** opens the browser) or from a terminal:
 
 ```bash
+rethink-app                # native GTK4/libadwaita app
 rethink-root-ui            # opens http://127.0.0.1:8777/?token=…
 rethinkctl ui --open       # same, from the CLI
 rethinkctl status
 ```
+
+The native app needs `python3-gi`, `gir1.2-gtk-4.0` and `gir1.2-adw-1`
+(pulled in by `apt`/COSMIC already; listed under `Recommends` in the package).
 
 The postinst copies the API token to `~/.config/rethinkd/token` so both work
 immediately; it also adds you to the `rethinkd` group, which takes effect at your
@@ -58,8 +65,8 @@ just use the copied token, `rethinkctl` as your user, or `sudo rethinkctl …`.
 **From source** (no root needed to develop):
 
 ```bash
-make test              # 71 unit/integration tests, stdlib unittest
-make smoke             # boots the daemon unprivileged, hits the API + UI
+make test              # 87 unit/integration tests, stdlib unittest
+make smoke             # boots the daemon unprivileged, hits the API, web UI and native app
 make deb               # builds the .deb, source tarball and SHA256SUMS
 ```
 
@@ -79,6 +86,18 @@ rethinkctl test <domain>          # why is this domain blocked/allowed?
 rethinkctl dns | upstream doh https://dns.example/dns-query
 rethinkctl proxy | proxy-set http|socks5 host port [user] | proxy-on | proxy-off
 rethinkctl log -n 20              # recent DNS decisions
+```
+
+## The native desktop app
+
+`rethink-app` starts a GTK4 + libadwaita window against the running daemon: dashboard with the
+protection switch and live activity, per-app allow/block, upstream DNS and query log, blocklist
+categories with refresh, proxy settings, and theme/about/log level. It polls the same API the
+web UI uses, surfaces daemon errors in a banner with a retry, and exits cleanly when the daemon
+is off — `rethink-root-ui` remains the browser-based fallback.
+
+```bash
+PYTHONPATH=src /usr/bin/python3 -m rethinkapp --selftest 8   # headless smoke run, prints status and exits
 ```
 
 ## How the pieces fit together
@@ -128,6 +147,7 @@ Manual (non-package) run during development:
 ```bash
 python3 -m rethinkd --dry-run --config /tmp/dev.json   # never touches iptables
 RETHINK_CONFIG=/tmp/dev.json rethinkctl status
+PYTHONPATH=src /usr/bin/python3 -m rethinkapp          # native app (needs a display)
 ```
 
 ## Repository layout
@@ -135,11 +155,12 @@ RETHINK_CONFIG=/tmp/dev.json rethinkctl status
 ```text
 src/rethinkd/           daemon (api, config, activity, firewall, proxy)
 src/rethinkd/dns/       wire format, blocklists, upstreams, UDP/TCP server
+src/rethinkapp/         native GTK4/libadwaita desktop app
 src/rethinkd/ui/        web UI (index.html, app.js, style.css, icon.svg)
 bin/rethinkctl          command line client
 systemd/rethinkd.service unit with capability hardening
 packaging/build-deb.sh  .deb + tarball + SHA256SUMS
-tests/                  stdlib unittest suite (71 tests)
+tests/                  stdlib unittest suite (87 tests)
 docs/api.md             the HTTP API contract
 ```
 

@@ -1,0 +1,29 @@
+#!/bin/sh
+# rethink-app — launch the native GTK4/libadwaita desktop app.
+# Falls back to the web UI when the GTK bindings are not installed.
+set -eu
+
+PY=/usr/bin/python3
+command -v "$PY" >/dev/null 2>&1 || PY=python3
+
+if ! "$PY" -c 'import gi; gi.require_version("Gtk", "4.0")' >/dev/null 2>&1; then
+  echo "rethink-app: GTK4 bindings missing (python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1)" >&2
+  echo "rethink-app: falling back to the web UI" >&2
+  exec rethink-root-ui "$@"
+fi
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+EXTRA=""
+if [ -d "$HERE/../src/rethinkapp" ]; then
+  # running from a git checkout: prefer the working tree
+  EXTRA="$HERE/../src:"
+fi
+PYTHONPATH="${EXTRA}/usr/lib/rethinkd${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
+if ! "$PY" -c 'import rethinkapp' >/dev/null 2>&1; then
+  echo "rethink-app: native app not installed — falling back to the web UI" >&2
+  exec rethink-root-ui "$@"
+fi
+
+exec "$PY" -m rethinkapp "$@"

@@ -39,4 +39,14 @@ curl -sf -X POST "${auth[@]}" -d '{"on":false}' "http://127.0.0.1:$PORT/api/prot
 curl -sf -X POST "${auth[@]}" -d '{"on":true}' "http://127.0.0.1:$PORT/api/protected" >/dev/null || fail "on"
 RETHINK_CONFIG="$TMP/config.json" python3 bin/rethinkctl status | grep -q "protection : ON" || fail "rethinkctl"
 
+# native GTK app selftest: builds every page against the daemon, then exits
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && /usr/bin/python3 -c 'import gi' 2>/dev/null; then
+  APP_OUT="$(/usr/bin/python3 -m rethinkapp --selftest 7 2>&1)" || { echo "$APP_OUT"; fail "rethinkapp"; }
+  echo "$APP_OUT" | grep -q "connected=True" || { echo "$APP_OUT"; fail "rethinkapp api"; }
+  echo "$APP_OUT" | grep -q "pages=apps,dns,home,lists,proxy,settings" || { echo "$APP_OUT"; fail "rethinkapp pages"; }
+  echo "native app ok"
+else
+  echo "native app selftest skipped (no display / no GTK bindings)"
+fi
+
 echo "smoke ok"
