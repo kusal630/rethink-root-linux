@@ -11,6 +11,9 @@ STAGE="$OUT/stage"
 
 command -v dpkg-deb >/dev/null || { echo "dpkg-deb is required" >&2; exit 1; }
 
+PYV="$(sed -n 's/.*__version__ = "\([^"]*\)".*/\1/p' src/rethinkd/__init__.py)"
+[ "$PYV" = "$VERSION" ] || { echo "version mismatch: VERSION=$VERSION __init__=$PYV" >&2; exit 1; }
+
 rm -rf "$OUT/stage" "$OUT/rethinkd_${VERSION}_${ARCH}.deb"
 mkdir -p \
   "$STAGE/usr/lib/rethinkd" \
