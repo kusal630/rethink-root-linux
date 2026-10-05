@@ -43,7 +43,10 @@ RETHINK_CONFIG="$TMP/config.json" python3 bin/rethinkctl status | grep -q "prote
 if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && /usr/bin/python3 -c 'import gi' 2>/dev/null; then
   APP_OUT="$(/usr/bin/python3 -m rethinkapp --selftest 7 2>&1)" || { echo "$APP_OUT"; fail "rethinkapp"; }
   echo "$APP_OUT" | grep -q "connected=True" || { echo "$APP_OUT"; fail "rethinkapp api"; }
-  echo "$APP_OUT" | grep -q "pages=apps,dns,home,lists,proxy,settings" || { echo "$APP_OUT"; fail "rethinkapp pages"; }
+  echo "$APP_OUT" | grep -q "pages=dns,firewall,home,logs,proxy,settings,stats" || { echo "$APP_OUT"; fail "rethinkapp pages"; }
+  if echo "$APP_OUT" | grep -Eqi "warning|critical|traceback"; then
+    echo "$APP_OUT"; fail "rethinkapp warnings"
+  fi
   echo "native app ok"
 else
   echo "native app selftest skipped (no display / no GTK bindings)"

@@ -9,7 +9,8 @@ GTK4/libadwaita app, from a local web UI on `127.0.0.1:8777`, or from the `rethi
 
 * Daemon: `rethinkd` — a single, dependency-free Python 3 process (stdlib only).
 * Desktop app: native GTK4 + libadwaita window (`rethink-app`, ships as its own launch entry) —
-  dashboard, per-app rules, DNS, lists, proxy and settings, no browser required.
+  seven pages (Home, Firewall, DNS, Logs, Stats, Proxy, Settings) that mirror the RethinkDNS
+  Android app feature-for-feature, no browser required.
 * Web UI: vanilla HTML/CSS/JS served by the daemon itself — no CDN, no build step, no phone-home;
   still available (and used automatically if the GTK bindings are missing).
 * Packaged as a `.deb`, runs under systemd with only `CAP_NET_ADMIN`,
@@ -37,7 +38,7 @@ our own chains.
 ## Install
 
 ```bash
-sudo dpkg -i dist/rethinkd_0.1.3_amd64.deb   # from a release asset
+sudo dpkg -i dist/rethinkd_0.1.4_amd64.deb   # from a release asset
 sudo apt-get install -f                       # if python3/iptables need pulling in
 ```
 
@@ -90,11 +91,25 @@ rethinkctl log -n 20              # recent DNS decisions
 
 ## The native desktop app
 
-`rethink-app` starts a GTK4 + libadwaita window against the running daemon: dashboard with the
-protection switch and live activity, per-app allow/block, upstream DNS and query log, blocklist
-categories with refresh, proxy settings, and theme/about/log level. It polls the same API the
-web UI uses, surfaces daemon errors in a banner with a retry, and exits cleanly when the daemon
-is off — `rethink-root-ui` remains the browser-based fallback.
+`rethink-app` starts a GTK4 + libadwaita window against the running daemon. It mirrors the
+RethinkDNS Android app feature-for-feature, laid out for a desktop:
+
+| Page | What you get |
+| --- | --- |
+| **Home** (`Ctrl+1`) | protection bar (state, active-since, uid, distro), DNS / last-hour / firewall / proxy cards with live numbers, apps + recent activity, and a dock with STOP·START, pause (5/15/60 min, auto-resumes), refresh and Web UI |
+| **Firewall** (`Ctrl+2`) | default policy, Block all / Allow all / Reset rules, search by name·uid·path, All/Allowed/Blocked/Explicit filters, sort, rescan, per-app allow·block switches with counters and an info dialog |
+| **DNS** (`Ctrl+3`) | upstream resolver (system / DoH / DoT / plain) + hijack toggle, block/allow domain rules, blocklist categories and custom lists with refresh, test a domain |
+| **Logs** (`Ctrl+4`) | DNS log and activity in tabs, blocked/allowed/all filters, search, quick Block/Allow straight from an entry, clear log |
+| **Stats** (`Ctrl+5`) | queries, blocked, block rate, top blocked, per-minute chart, most-blocked domains, query types |
+| **Proxy** (`Ctrl+6`) | enable switch, HTTP/SOCKS5 endpoint, auth, bypass LAN and bypass domains |
+| **Settings** (`Ctrl+7`) | theme, start-protected-on-boot, log level, listen/mode info, web UI links, About (version, uptime, kernel, distro, Python, uid, firewall state) |
+
+Shortcuts: `Ctrl+R` / `F5` refresh, `Ctrl+F` firewall search, `Ctrl+1…7` jump to a page. It polls
+the same API the web UI uses, surfaces daemon errors in a banner with a retry, and falls back to
+`rethink-root-ui` (browser) when the GTK bindings are missing.
+
+Not possible from any client (no daemon support): WireGuard, VPN tun, RPN subscriptions and
+per-interface (Wi-Fi/mobile) policy — those exist only on Android.
 
 ```bash
 PYTHONPATH=src /usr/bin/python3 -m rethinkapp --selftest 8   # headless smoke run, prints status and exits
